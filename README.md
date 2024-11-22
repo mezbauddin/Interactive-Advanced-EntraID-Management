@@ -2,7 +2,7 @@
 
 ## Overview
 
-This **Interactive Advanced Entra ID User Management Script** provides a robust and user-friendly way to manage users, licenses, groups, roles, and MFA settings in **Entra ID (formerly Azure AD)**. The interactive menu allows administrators to perform complex management tasks with ease.
+The **Interactive Advanced Entra ID User Management Script** provides a comprehensive and user-friendly solution for managing users, licenses, groups, roles, and MFA settings in **Entra ID (formerly Azure Active Directory)**. This script is designed to simplify administrative tasks with an intuitive interactive menu.
 
 ## Features
 
@@ -11,14 +11,14 @@ This **Interactive Advanced Entra ID User Management Script** provides a robust 
 - **Update Users**: Modify user properties such as display name, job title, and group memberships.
 - **Manage Licenses**: Assign or remove licenses for single or multiple users with real-time selection.
 - **Manage MFA**: View, add, and remove authentication methods for users.
-- **Search Users**: Search users dynamically using names, emails, or departments.
+- **Search Users**: Dynamically search users using names, emails, or departments.
 
 ## Requirements
 
-- **Microsoft Graph Module**: Install using:
+- **Microsoft Graph Module**: Install the module using:
   ```powershell
   Install-Module -Name Microsoft.Graph -Scope CurrentUser
-Permissions: The script requires scopes such as:
+Permissions: The script requires the following permissions:
 User.ReadWrite.All
 Group.ReadWrite.All
 Directory.AccessAsUser.All
@@ -33,7 +33,7 @@ Copy code
 Install-Module Microsoft.Graph -Scope CurrentUser
 Step 2: Run the Script
 Authenticate to Microsoft Graph when prompted.
-Use the interactive menu to choose and execute tasks.
+Use the interactive menu to select and execute tasks.
 Step 3: Menu Options
 List Users: Fetch a list of all users with detailed properties.
 Add New User: Add a user with licenses and roles.
@@ -43,7 +43,7 @@ Assign or remove licenses for single or multiple users.
 MFA Management: Manage multi-factor authentication methods for users.
 Exit: Disconnect from Microsoft Graph and exit.
 Example Output
-markdown
+plaintext
 Copy code
 ==========================
 Entra ID User Management
@@ -56,6 +56,16 @@ Entra ID User Management
 6. Exit
 ==========================
 Enter your choice:
+Example Scenarios
+Add a New User
+Enter the display name, UPN, and temporary password.
+Assign a license and optionally add a role.
+Manage Licenses
+View available licenses.
+Add or remove licenses for single or multiple users interactively.
+Manage MFA
+View a user's existing MFA methods.
+Remove specific or all authentication methods.
 Author
 Mezba Uddin
 
@@ -66,4 +76,4 @@ License
 This project is licensed under the MIT License.
 
 Contributions
-Contributions and feedback are welcome! Submit pull requests or issues via GitHub.
+Feedback and contributions are welcome! Submit pull requests or issues on GitHub.
