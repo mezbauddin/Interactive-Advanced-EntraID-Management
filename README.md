@@ -2,78 +2,149 @@
 
 ## Overview
 
-The **Interactive Advanced Entra ID User Management Script** provides a comprehensive and user-friendly solution for managing users, licenses, groups, roles, and MFA settings in **Entra ID (formerly Azure Active Directory)**. This script is designed to simplify administrative tasks with an intuitive interactive menu.
+The **Interactive Advanced Entra ID User Management Script** provides a comprehensive and user-friendly solution for managing users, licenses, groups, roles, and MFA settings in **Entra ID (formerly Azure Active Directory)**. This PowerShell-based tool simplifies administrative tasks through an intuitive interactive menu system.
 
 ## Features
 
-- **List Users**: Retrieve detailed information about users, including names, email addresses, and more.
-- **Add Users**: Add new users with options to assign licenses and roles.
-- **Update Users**: Modify user properties such as display name, job title, and group memberships.
-- **Manage Licenses**: Assign or remove licenses for single or multiple users with real-time selection.
-- **Manage MFA**: View, add, and remove authentication methods for users.
-- **Search Users**: Dynamically search users using names, emails, or departments.
+- **User Management**
+  - List all users with detailed properties
+  - Add new users with customizable settings
+  - Update existing user properties
+  - Search users by name, email, or department
 
-## Requirements
+- **License Management**
+  - View available licenses and their counts
+  - Assign licenses to individual or multiple users
+  - Remove licenses with confirmation
+  - View current license assignments
 
-- **Microsoft Graph Module**: Install the module using:
-  ```powershell
-  Install-Module -Name Microsoft.Graph -Scope CurrentUser
-Permissions: The script requires the following permissions:
-User.ReadWrite.All
-Group.ReadWrite.All
-Directory.AccessAsUser.All
-UserAuthenticationMethod.ReadWrite.All
-Authentication: Use Connect-MgGraph to authenticate to Microsoft Graph before executing operations.
-Usage
-Step 1: Install Dependencies
-Ensure you have the necessary permissions and modules installed:
+- **Role Management**
+  - Assign directory roles during user creation
+  - View available roles and their IDs
+  - Manage role assignments
 
-powershell
-Copy code
-Install-Module Microsoft.Graph -Scope CurrentUser
-Step 2: Run the Script
-Authenticate to Microsoft Graph when prompted.
-Use the interactive menu to select and execute tasks.
-Step 3: Menu Options
-List Users: Fetch a list of all users with detailed properties.
-Add New User: Add a user with licenses and roles.
-Update User: Modify user attributes or manage group memberships.
-License Management:
-Assign or remove licenses for single or multiple users.
-MFA Management: Manage multi-factor authentication methods for users.
-Exit: Disconnect from Microsoft Graph and exit.
-Example Output
-plaintext
-Copy code
-==========================
-Entra ID User Management
-==========================
-1. List all users
-2. Add a new user
-3. Update a user
-4. License Management
-5. MFA Management
-6. Exit
-==========================
-Enter your choice:
-Example Scenarios
-Add a New User
-Enter the display name, UPN, and temporary password.
-Assign a license and optionally add a role.
-Manage Licenses
-View available licenses.
-Add or remove licenses for single or multiple users interactively.
-Manage MFA
-View a user's existing MFA methods.
-Remove specific or all authentication methods.
-Author
-Mezba Uddin
+- **MFA Management**
+  - View current authentication methods
+  - Add/Remove authentication methods
+  - Manage FIDO2 security keys
+  - Configure Windows Hello for Business
 
-Version
-2.2
-Last Updated: 2024-11-06
-License
-This project is licensed under the MIT License.
+## Prerequisites
 
-Contributions
-Feedback and contributions are welcome! Submit pull requests or issues on GitHub.
+### Required Modules
+```powershell
+Install-Module -Name Microsoft.Graph.Authentication
+Install-Module -Name Microsoft.Graph.Users
+Install-Module -Name Microsoft.Graph.Identity.DirectoryManagement
+Install-Module -Name Microsoft.Graph.Users.Actions
+Install-Module -Name Microsoft.Graph.Identity.SignIns
+```
+
+### Required Permissions
+The account running the script needs these Microsoft Graph permissions:
+- `User.ReadWrite.All`
+- `Group.ReadWrite.All`
+- `Directory.AccessAsUser.All`
+- `UserAuthenticationMethod.ReadWrite.All`
+
+## Installation
+
+1. Clone or download this repository
+2. Ensure you have PowerShell 5.1 or later
+3. Install required modules as mentioned above
+4. Run the script from PowerShell ISE or PowerShell console
+
+## Usage
+
+### Starting the Script
+```powershell
+.\Interactive-EntraIDUserManagement.ps1
+```
+
+### Main Menu Options
+1. **List all users**
+   - View comprehensive list of all users
+   - Displays key properties like name, email, and status
+
+2. **Add a new user**
+   - Enter user details (name, email, etc.)
+   - Set temporary password
+   - Assign licenses (optional)
+   - Assign roles (optional)
+
+3. **Update a user**
+   - Modify display name
+   - Update job title
+   - Change department
+   - Enable/disable account
+
+4. **License Management**
+   - View available licenses
+   - Assign licenses to users
+   - Remove licenses
+   - Bulk license operations
+
+5. **MFA Management**
+   - View authentication methods
+   - Add/remove methods
+   - Configure security settings
+
+### Example Operations
+
+#### Adding a New User
+```powershell
+1. Select "Add a new user" from main menu
+2. Enter required information:
+   - Display Name
+   - User Principal Name (email)
+   - Mail Nickname
+   - Temporary Password
+3. Choose license (optional)
+4. Assign directory role (optional)
+```
+
+#### Managing Licenses
+```powershell
+1. Select "License Management"
+2. Choose user(s)
+3. Select from options:
+   - Add License
+   - Remove License
+   - View Current Licenses
+```
+
+## Error Handling
+
+- The script includes comprehensive error handling
+- All operations are logged
+- User-friendly error messages
+- Automatic retry for certain operations
+
+## Security Features
+
+- Password complexity requirements
+- Forced password change at first login
+- MFA configuration options
+- Secure credential handling
+
+## Author
+- **Name**: Mezba Uddin
+- **Version**: 2.2
+- **Last Updated**: 2024-11-06
+
+## Support
+
+For issues, questions, or contributions:
+1. Open an issue in the GitHub repository
+2. Provide detailed information about the problem
+3. Include error messages and script version
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- Microsoft Graph PowerShell SDK team
+- PowerShell community
+- All contributors and testers

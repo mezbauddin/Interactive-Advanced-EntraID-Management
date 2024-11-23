@@ -29,11 +29,22 @@
 
 #>
 
-# Import the Microsoft.Graph module (install if not already installed)
-if (!(Get-Module -Name Microsoft.Graph -ListAvailable)) {
-    Install-Module -Name Microsoft.Graph -Force -Scope CurrentUser
+# Import required Microsoft.Graph modules
+$requiredModules = @(
+    "Microsoft.Graph.Authentication",
+    "Microsoft.Graph.Users",
+    "Microsoft.Graph.Identity.DirectoryManagement",
+    "Microsoft.Graph.Users.Actions",
+    "Microsoft.Graph.Identity.SignIns"
+)
+
+foreach ($module in $requiredModules) {
+    if (!(Get-Module -Name $module -ListAvailable)) {
+        Write-Host "Installing $module..." -ForegroundColor Cyan
+        Install-Module -Name $module -Force -Scope CurrentUser
+    }
+    Import-Module -Name $module -Force
 }
-Import-Module Microsoft.Graph
 
 # Function to ensure Graph connection
 function Connect-EntraGraph {
@@ -114,11 +125,31 @@ function Show-LicenseMenu {
 
 # Function to list all users
 function List-AllUsers {
-    Write-Host "Fetching all Entra ID users..."
-    $users = Get-MgUser -All
-    foreach ($user in $users) {
-        Write-Host "Display Name: $($user.DisplayName), Email: $($user.Mail), ID: $($user.Id)"
+    try {
+        Write-Host "Fetching all Entra ID users..." -ForegroundColor Cyan
+        $users = Get-MgUser -All -ErrorAction Stop
+        
+        if ($users.Count -eq 0) {
+            Write-Host "No users found in the directory." -ForegroundColor Yellow
+            return
+        }
+
+        Write-Host "`nUser List:" -ForegroundColor Green
+        Write-Host "==========" -ForegroundColor Green
+        foreach ($user in $users) {
+            Write-Host "Display Name: $($user.DisplayName)" -ForegroundColor Cyan
+            Write-Host "Email: $($user.Mail)"
+            Write-Host "ID: $($user.Id)"
+            Write-Host "Account Enabled: $($user.AccountEnabled)"
+            Write-Host "----------"
+        }
     }
+    catch {
+        Write-Host "Error fetching users: $($_.Exception.Message)" -ForegroundColor Red
+        Write-ErrorLog -ErrorMessage "Failed to fetch users" -ErrorDetails $_.Exception.Message
+    }
+    
+    $continue = Read-Host "`nPress Enter to continue"
 }
 
 # Function to write error logs
@@ -165,14 +196,14 @@ function Get-AvailableLicenses {
         }
 
         $i = 1
-        $licenseOptions = @{}
+        $script:licenseOptions = @{}
         
         Write-Host "`nAvailable Licenses:"
         Write-Host "==================="
         foreach ($sub in $subscriptions) {
             $availableUnits = $sub.PrepaidUnits.Enabled - $sub.ConsumedUnits
             Write-Host "$i. $($sub.SkuPartNumber) - Available: $availableUnits" -ForegroundColor Cyan
-            $licenseOptions[$i] = @{
+            $script:licenseOptions[$i.ToString()] = @{
                 SkuId = $sub.SkuId
                 AvailableUnits = $availableUnits
                 SkuPartNumber = $sub.SkuPartNumber
@@ -185,12 +216,12 @@ function Get-AvailableLicenses {
             $selection = Read-Host "Select a license number (or press Enter to skip)"
             if ([string]::IsNullOrEmpty($selection)) { return $null }
             
-            if ($licenseOptions[$selection]) {
-                if ($licenseOptions[$selection].AvailableUnits -le 0) {
-                    Write-Host "No available licenses for $($licenseOptions[$selection].SkuPartNumber)" -ForegroundColor Yellow
-                    return $null
+            if ($script:licenseOptions[$selection]) {
+                if ($script:licenseOptions[$selection].AvailableUnits -le 0) {
+                    Write-Host "No available licenses for $($script:licenseOptions[$selection].SkuPartNumber)" -ForegroundColor Yellow
+                    continue
                 }
-                return $licenseOptions[$selection].SkuId
+                return $script:licenseOptions[$selection].SkuId
             }
             Write-Host "Invalid selection. Please try again." -ForegroundColor Yellow
         } while ($true)
@@ -233,68 +264,155 @@ function Show-UserLicenses {
 
 # Function to add a new user
 function Add-NewUser {
-    $DisplayName = Read-Host "Enter the display name for the new user"
-    $UserPrincipalName = Read-Host "Enter the user principal name (e.g., john.doe@yourdomain.com)"
-    $MailNickname = Read-Host "Enter the mail nickname for the user"
-    $Password = Read-Host "Enter a temporary password for the user (password will need to be reset on first login)"
+    try {
+        Write-Host "`nAdding New User" -ForegroundColor Cyan
+        Write-Host "==============" -ForegroundColor Cyan
+        
+        # Collect user information with validation
+        do {
+            $DisplayName = Read-Host "Enter the display name for the new user"
+        } while ([string]::IsNullOrWhiteSpace($DisplayName))
+        
+        do {
+            $UserPrincipalName = Read-Host "Enter the user principal name (e.g., john.doe@yourdomain.com)"
+            if (-not ($UserPrincipalName -match "^[^@]+@[^@]+\.[^@]+$")) {
+                Write-Host "Invalid email format. Please try again." -ForegroundColor Yellow
+                continue
+            }
+            
+            # Check if user already exists
+            $existingUser = Get-MgUser -Filter "UserPrincipalName eq '$UserPrincipalName'" -ErrorAction SilentlyContinue
+            if ($existingUser) {
+                Write-Host "A user with this email already exists. Please try a different email." -ForegroundColor Yellow
+                continue
+            }
+            break
+        } while ($true)
+        
+        do {
+            $MailNickname = Read-Host "Enter the mail nickname for the user (will be used in email address)"
+            if ([string]::IsNullOrWhiteSpace($MailNickname)) {
+                Write-Host "Mail nickname cannot be empty. Please try again." -ForegroundColor Yellow
+                continue
+            }
+            break
+        } while ($true)
+        
+        do {
+            $Password = Read-Host "Enter a temporary password for the user (minimum 8 characters, must include uppercase, lowercase, number, and special character)"
+            if ($Password.Length -lt 8 -or 
+                -not ($Password -match "[A-Z]") -or 
+                -not ($Password -match "[a-z]") -or 
+                -not ($Password -match "[0-9]") -or 
+                -not ($Password -match "[^A-Za-z0-9]")) {
+                Write-Host "Password does not meet complexity requirements. Please try again." -ForegroundColor Yellow
+                continue
+            }
+            break
+        } while ($true)
+
+        Write-Host "`nSelect a license to assign (optional):" -ForegroundColor Cyan
+        $LicenseSkuId = Get-AvailableLicenses
+        
+        Write-Host "`nCreating new user: $DisplayName..." -ForegroundColor Cyan
+        $newUser = New-MgUser -AccountEnabled $true `
+            -DisplayName $DisplayName `
+            -UserPrincipalName $UserPrincipalName `
+            -MailNickname $MailNickname `
+            -PasswordProfile @{
+                Password = $Password
+                ForceChangePasswordNextSignIn = $true
+                ForceChangePasswordNextSignInWithMfa = $true
+            } -ErrorAction Stop
+            
+        Write-Host "User $DisplayName created successfully!" -ForegroundColor Green
+
+        if ($LicenseSkuId) {
+            Write-Host "Assigning license..." -ForegroundColor Cyan
+            Set-UserLicense -UserId $newUser.Id -LicenseSkuId $LicenseSkuId -RemoveLicense $false
+            Write-Host "License assigned successfully!" -ForegroundColor Green
+        }
+
+        # Ask about role assignment
+        $assignRole = Read-Host "`nDo you want to assign a directory role to this user? (Y/N)"
+        if ($assignRole -eq 'Y' -or $assignRole -eq 'y') {
+            $roles = Get-MgDirectoryRole
+            Write-Host "`nAvailable Directory Roles:" -ForegroundColor Cyan
+            Write-Host "======================" -ForegroundColor Cyan
+            foreach ($role in $roles) {
+                Write-Host "$($role.Id): $($role.DisplayName)" -ForegroundColor Yellow
+            }
+            
+            $RoleId = Read-Host "`nEnter the Directory Role ID to assign"
+            if (-not [string]::IsNullOrWhiteSpace($RoleId)) {
+                New-MgDirectoryRoleMember -DirectoryRoleId $RoleId -DirectoryObjectId $newUser.Id -ErrorAction Stop
+                Write-Host "Role assigned successfully!" -ForegroundColor Green
+            }
+        }
+
+        Write-Host "`nUser creation completed successfully!" -ForegroundColor Green
+        Write-Host "Please provide these credentials to the user:" -ForegroundColor Cyan
+        Write-Host "Username: $UserPrincipalName" -ForegroundColor Yellow
+        Write-Host "Temporary Password: $Password" -ForegroundColor Yellow
+        Write-Host "Note: The user will be required to change their password upon first login." -ForegroundColor Cyan
+    }
+    catch {
+        Write-Host "Error creating user: $($_.Exception.Message)" -ForegroundColor Red
+        Write-ErrorLog -ErrorMessage "Failed to create new user" -ErrorDetails $_.Exception.Message
+    }
     
-    Write-Host "`nSelect a license to assign:"
-    $LicenseSkuId = Get-AvailableLicenses
-    $RoleId = Read-Host "Enter the Directory Role ID (Leave blank to skip role assignment)"
-
-    Write-Host "Adding new user: $DisplayName..."
-    $newUser = New-MgUser -AccountEnabled $true -DisplayName $DisplayName -UserPrincipalName $UserPrincipalName `
-        -MailNickname $MailNickname -PasswordProfile @{Password=$Password; ForceChangePasswordNextSignIn=$true}
-    Write-Host "User $DisplayName added successfully!"
-
-    if ($LicenseSkuId) {
-        Add-MgUserLicense -UserId $newUser.Id -AddLicenses @{SkuId=$LicenseSkuId} -RemoveLicenses @()
-        Write-Host "License assigned successfully"
-    }
-
-    if ($RoleId) {
-        New-MgDirectoryRoleMember -DirectoryRoleId $RoleId -DirectoryObjectId $newUser.Id
-        Write-Host "Role assigned: $RoleId"
-    }
+    $continue = Read-Host "`nPress Enter to continue"
 }
 
-# Function to update an existing user
+# Function to update user properties
 function Update-User {
-    $UserPrincipalName = Read-Host "Enter the UserPrincipalName of the user to update (e.g., john.doe@yourdomain.com)"
-    $NewDisplayName = Read-Host "Enter the new display name (Leave blank to keep unchanged)"
-    $NewJobTitle = Read-Host "Enter the new job title (Leave blank to keep unchanged)"
-    $AddGroups = Read-Host "Enter Group IDs to add the user to (comma-separated, or leave blank)"
-    $RemoveGroups = Read-Host "Enter Group IDs to remove the user from (comma-separated, or leave blank)"
+    try {
+        $user = Find-EntraIDUser
+        if (-not $user) { return }
 
-    $user = Get-MgUser -Filter "UserPrincipalName eq '$UserPrincipalName'"
-    if ($user) {
-        if ($NewDisplayName) {
-            Update-MgUser -UserId $user.Id -DisplayName $NewDisplayName
-            Write-Host "Updated display name to: $NewDisplayName"
-        }
-
-        if ($NewJobTitle) {
-            Update-MgUser -UserId $user.Id -JobTitle $NewJobTitle
-            Write-Host "Updated job title to: $NewJobTitle"
-        }
-
-        if ($AddGroups) {
-            $groupIdsToAdd = $AddGroups -split ","
-            foreach ($groupId in $groupIdsToAdd) {
-                Add-MgGroupMember -GroupId $groupId -DirectoryObjectId $user.Id
-                Write-Host "Added to group: $groupId"
+        do {
+            Write-Host "`nUpdate Options for $($user.DisplayName):" -ForegroundColor Cyan
+            Write-Host "1. Update Display Name" -ForegroundColor Yellow
+            Write-Host "2. Update Job Title" -ForegroundColor Yellow
+            Write-Host "3. Update Department" -ForegroundColor Yellow
+            Write-Host "4. Enable/Disable Account" -ForegroundColor Yellow
+            Write-Host "5. Back to Main Menu" -ForegroundColor Yellow
+            
+            $choice = Read-Host "`nEnter your choice (1-5)"
+            
+            switch ($choice) {
+                "1" {
+                    $newDisplayName = Read-Host "Enter new display name"
+                    Update-MgUser -UserId $user.Id -DisplayName $newDisplayName
+                    Write-Host "Display name updated successfully!" -ForegroundColor Green
+                }
+                "2" {
+                    $newJobTitle = Read-Host "Enter new job title"
+                    Update-MgUser -UserId $user.Id -JobTitle $newJobTitle
+                    Write-Host "Job title updated successfully!" -ForegroundColor Green
+                }
+                "3" {
+                    $newDepartment = Read-Host "Enter new department"
+                    Update-MgUser -UserId $user.Id -Department $newDepartment
+                    Write-Host "Department updated successfully!" -ForegroundColor Green
+                }
+                "4" {
+                    $currentStatus = (Get-MgUser -UserId $user.Id).AccountEnabled
+                    $newStatus = -not $currentStatus
+                    Update-MgUser -UserId $user.Id -AccountEnabled $newStatus
+                    $statusText = if ($newStatus) { "enabled" } else { "disabled" }
+                    Write-Host "Account has been $statusText!" -ForegroundColor Green
+                }
+                "5" { return }
+                default { Write-Host "Invalid choice. Please try again." -ForegroundColor Yellow }
             }
-        }
-
-        if ($RemoveGroups) {
-            $groupIdsToRemove = $RemoveGroups -split ","
-            foreach ($groupId in $groupIdsToRemove) {
-                Remove-MgGroupMember -GroupId $groupId -DirectoryObjectId $user.Id
-                Write-Host "Removed from group: $groupId"
-            }
-        }
-    } else {
-        Write-Host "User not found!"
+            
+            $user = Get-MgUser -UserId $user.Id
+        } while ($choice -ne "5")
+    }
+    catch {
+        Write-Host "Error updating user: $($_.Exception.Message)" -ForegroundColor Red
+        Write-ErrorLog -ErrorMessage "Failed to update user" -ErrorDetails $_.Exception.Message
     }
 }
 
@@ -451,14 +569,8 @@ function Manage-Licenses {
                     Write-Host "`nSelect a license to assign:"
                     $LicenseSkuId = Get-AvailableLicenses
                     if ($LicenseSkuId) {
-                        try {
-                            Add-MgUserLicense -UserId $user.Id -AddLicenses @{SkuId=$LicenseSkuId} -RemoveLicenses @() -ErrorAction Stop
-                            Write-Host "License assigned successfully to $($user.UserPrincipalName)" -ForegroundColor Green
-                        }
-                        catch {
-                            Write-Host "Error assigning license: $($_.Exception.Message)" -ForegroundColor Red
-                            Write-ErrorLog -ErrorMessage "Failed to assign license" -ErrorDetails $_.Exception.Message
-                        }
+                        Set-UserLicense -UserId $user.Id -LicenseSkuId $LicenseSkuId -RemoveLicense $false
+                        Write-Host "License assigned successfully to $($user.UserPrincipalName)" -ForegroundColor Green
                     }
                 }
                 "2" {
@@ -478,23 +590,8 @@ function Manage-Licenses {
                         
                         $selection = Read-Host "Select the license number to remove"
                         if ($selection -ge 1 -and $selection -le $userLicenses.Count) {
-                            try {
-                                $LicenseSkuId = $userLicenses[$selection-1].SkuId
-                                Set-MgUserLicense -UserId $user.Id -AddLicenses @() -RemoveLicenses @($LicenseSkuId) -ErrorAction Stop
-                                Write-Host "License removed successfully from $($user.UserPrincipalName)" -ForegroundColor Green
-                                
-                                # Verify the license removal
-                                $updatedLicenses = Get-MgUserLicenseDetail -UserId $user.Id
-                                if ($updatedLicenses.SkuId -notcontains $LicenseSkuId) {
-                                    Write-Host "Verified: License removal confirmed" -ForegroundColor Green
-                                } else {
-                                    Write-Host "Warning: License might not have been removed properly. Please verify." -ForegroundColor Yellow
-                                }
-                            }
-                            catch {
-                                Write-Host "Error removing license: $($_.Exception.Message)" -ForegroundColor Red
-                                Write-ErrorLog -ErrorMessage "Failed to remove license" -ErrorDetails $_.Exception.Message
-                            }
+                            Set-UserLicense -UserId $user.Id -LicenseSkuId $userLicenses[$selection-1].SkuId -RemoveLicense $true
+                            Write-Host "License removed successfully from $($user.UserPrincipalName)" -ForegroundColor Green
                         }
                         else {
                             Write-Host "Invalid selection." -ForegroundColor Yellow
@@ -576,14 +673,8 @@ function Manage-BulkLicenses {
 
                 Write-Host "`nAssigning license to selected users..." -ForegroundColor Cyan
                 foreach ($user in $selectedUsers) {
-                    try {
-                        Add-MgUserLicense -UserId $user.Id -AddLicenses @{SkuId=$LicenseSkuId} -RemoveLicenses @() -ErrorAction Stop
-                        Write-Host "License assigned successfully to $($user.UserPrincipalName)" -ForegroundColor Green
-                    }
-                    catch {
-                        Write-Host "Error assigning license to $($user.UserPrincipalName): $($_.Exception.Message)" -ForegroundColor Red
-                        Write-ErrorLog -ErrorMessage "Failed to assign license to user" -ErrorDetails $_.Exception.Message
-                    }
+                    Set-UserLicense -UserId $user.Id -LicenseSkuId $LicenseSkuId -RemoveLicense $false
+                    Write-Host "License assigned successfully to $($user.UserPrincipalName)" -ForegroundColor Green
                 }
             }
             "2" {
@@ -620,14 +711,8 @@ function Manage-BulkLicenses {
 
                 Write-Host "`nRemoving licenses from selected users..." -ForegroundColor Cyan
                 foreach ($selected in $selectedUsers) {
-                    try {
-                        Set-MgUserLicense -UserId $selected.User.Id -AddLicenses @() -RemoveLicenses @($selected.LicenseSkuId) -ErrorAction Stop
-                        Write-Host "License removed successfully from $($selected.User.UserPrincipalName)" -ForegroundColor Green
-                    }
-                    catch {
-                        Write-Host "Error removing license from $($selected.User.UserPrincipalName): $($_.Exception.Message)" -ForegroundColor Red
-                        Write-ErrorLog -ErrorMessage "Failed to remove license from user" -ErrorDetails $_.Exception.Message
-                    }
+                    Set-UserLicense -UserId $selected.User.Id -LicenseSkuId $selected.LicenseSkuId -RemoveLicense $true
+                    Write-Host "License removed successfully from $($selected.User.UserPrincipalName)" -ForegroundColor Green
                 }
             }
             "3" {
@@ -678,38 +763,37 @@ function Manage-MFA {
                 foreach ($method in $authMethods) {
                     $methodType = $method.AdditionalProperties["@odata.type"]
                     $displayName = switch ($methodType) {
-                        "#microsoft.graph.microsoftAuthenticatorAuthenticationMethod" { 
-                            $methodCount++
-                            "Microsoft Authenticator App"
+                        "microsoftAuthenticator" {
+                            "Microsoft Authenticator"
                         }
-                        "#microsoft.graph.phoneAuthenticationMethod" { 
-                            $methodCount++
-                            $phoneType = $method.AdditionalProperties["phoneType"]
-                            $phoneNumber = $method.AdditionalProperties["phoneNumber"]
-                            "Phone Authentication ($phoneType): $phoneNumber"
+                        "phoneAuthentication" {
+                            $phoneNumber = $method.AdditionalProperties.phoneNumber
+                            "Phone Authentication: $phoneNumber"
                         }
-                        "#microsoft.graph.passwordAuthenticationMethod" { 
-                            continue  # Skip password method
-                        }
-                        "#microsoft.graph.emailAuthenticationMethod" { 
-                            $methodCount++
-                            $emailAddress = $method.AdditionalProperties["emailAddress"]
+                        "emailAuthentication" {
+                            $emailAddress = $method.AdditionalProperties.emailAddress
                             "Email Authentication: $emailAddress"
                         }
-                        "#microsoft.graph.fido2AuthenticationMethod" { 
-                            $methodCount++
-                            $model = $method.AdditionalProperties["model"]
-                            "FIDO2 Security Key $(if ($model) { ": $model" } else { "" })"
+                        "passwordAuthentication" {
+                            "Password"
                         }
-                        "#microsoft.graph.windowsHelloForBusinessAuthenticationMethod" { 
-                            $methodCount++
-                            $deviceName = $method.AdditionalProperties["displayName"]
-                            "Windows Hello for Business$(if ($deviceName) { ": $deviceName" } else { "" })"
+                        "windowsHelloForBusiness" {
+                            $deviceName = $method.AdditionalProperties.displayName
+                            "Windows Hello for Business: $deviceName"
                         }
-                        default { continue }
+                        "fido2SecurityKey" {
+                            $model = $method.AdditionalProperties.model
+                            "FIDO2 Security Key: $model"
+                        }
+                        "temporaryAccessPass" {
+                            "Temporary Access Pass"
+                        }
+                        default {
+                            $methodType
+                        }
                     }
 
-                    if ($methodType -ne "#microsoft.graph.passwordAuthenticationMethod") {
+                    if ($methodType -ne "passwordAuthentication") {
                         Write-Host "$i. $displayName" -ForegroundColor Gray
                         $methodList[$i] = @{
                             Id = $method.Id
@@ -792,6 +876,118 @@ function Manage-MFA {
     }
     
     $continue = Read-Host "`nPress Enter to continue"
+}
+
+# Function to assign license
+function Set-UserLicense {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$UserId,
+        [Parameter(Mandatory = $true)]
+        [string]$LicenseSkuId,
+        [bool]$RemoveLicense = $false
+    )
+    
+    try {
+        if ($RemoveLicense) {
+            # Remove license
+            Set-MgUserLicense -UserId $UserId -AddLicenses @() -RemoveLicenses @($LicenseSkuId)
+        } else {
+            # Add license
+            $addLicenseObj = @{
+                SkuId = $LicenseSkuId
+                DisabledPlans = @()
+            }
+            Set-MgUserLicense -UserId $UserId -AddLicenses @($addLicenseObj) -RemoveLicenses @()
+        }
+        return $true
+    }
+    catch {
+        Write-Host "Error managing license: $($_.Exception.Message)" -ForegroundColor Red
+        Write-ErrorLog -ErrorMessage "Failed to manage license" -ErrorDetails $_.Exception.Message
+        return $false
+    }
+}
+
+# Function to assign or remove licenses
+function Manage-Licenses {
+    try {
+        # Ensure we're connected before proceeding
+        if (-not (Connect-EntraGraph)) {
+            Write-Host "Unable to proceed without Microsoft Graph connection." -ForegroundColor Red
+            return
+        }
+
+        $user = Find-EntraIDUser
+        if (-not $user) { return }
+
+        do {
+            Write-Host "`nLicense Management Menu for $($user.DisplayName)" -ForegroundColor Green
+            Write-Host "=====================" -ForegroundColor Green
+            Write-Host "1. Add License" -ForegroundColor Cyan
+            Write-Host "2. Remove License" -ForegroundColor Cyan
+            Write-Host "3. View Current Licenses" -ForegroundColor Cyan
+            Write-Host "4. Back to Main Menu" -ForegroundColor Cyan
+            Write-Host "=====================" -ForegroundColor Green
+
+            $choice = Read-Host "`nEnter your choice (1-4)"
+
+            switch ($choice) {
+                "1" {
+                    Write-Host "`nSelect a license to assign:"
+                    $LicenseSkuId = Get-AvailableLicenses
+                    if ($LicenseSkuId) {
+                        Set-UserLicense -UserId $user.Id -LicenseSkuId $LicenseSkuId -RemoveLicense $false
+                        Write-Host "License assigned successfully!" -ForegroundColor Green
+                    }
+                }
+                "2" {
+                    $licenses = Get-MgUserLicenseDetail -UserId $user.Id
+                    if ($licenses.Count -eq 0) {
+                        Write-Host "User has no licenses to remove." -ForegroundColor Yellow
+                        continue
+                    }
+
+                    Write-Host "`nCurrent Licenses:"
+                    for ($i = 0; $i -lt $licenses.Count; $i++) {
+                        Write-Host "$($i + 1). $($licenses[$i].SkuPartNumber)" -ForegroundColor Cyan
+                    }
+
+                    $selection = Read-Host "`nSelect license number to remove (1-$($licenses.Count))"
+                    if ([int]::TryParse($selection, [ref]$null)) {
+                        $index = [int]$selection - 1
+                        if ($index -ge 0 -and $index -lt $licenses.Count) {
+                            Set-UserLicense -UserId $user.Id -LicenseSkuId $licenses[$index].SkuId -RemoveLicense $true
+                            Write-Host "License removed successfully!" -ForegroundColor Green
+                        }
+                        else {
+                            Write-Host "Invalid selection." -ForegroundColor Yellow
+                        }
+                    }
+                }
+                "3" {
+                    $licenses = Get-MgUserLicenseDetail -UserId $user.Id
+                    if ($licenses.Count -eq 0) {
+                        Write-Host "`nUser has no licenses assigned." -ForegroundColor Yellow
+                    }
+                    else {
+                        Write-Host "`nCurrent Licenses:" -ForegroundColor Green
+                        foreach ($license in $licenses) {
+                            Write-Host "- $($license.SkuPartNumber)" -ForegroundColor Cyan
+                        }
+                    }
+                    $continue = Read-Host "`nPress Enter to continue"
+                }
+                "4" { return }
+                default { Write-Host "Invalid choice. Please try again." -ForegroundColor Yellow }
+            }
+        } while ($true)
+    }
+    catch {
+        Write-Host "Error in license management: $($_.Exception.Message)" -ForegroundColor Red
+        Write-ErrorLog -ErrorMessage "Error in license management" -ErrorDetails $_.Exception.Message
+        $continue = Read-Host "`nPress Enter to continue"
+    }
 }
 
 # Main Script Execution
