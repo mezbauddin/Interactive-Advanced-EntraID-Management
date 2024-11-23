@@ -1,0 +1,21 @@
+# Log files
+*.log
+
+# PowerShell module directories
+/Modules/
+
+# User-specific files
+*.user
+*.suo
+*.userprefs
+
+# VS Code directory
+.vscode/
+
+# Windows thumbnail cache files
+Thumbs.db
+ehthumbs.db
+ehthumbs_vista.db
+
+# Windows Folder config file
+Desktop.ini
