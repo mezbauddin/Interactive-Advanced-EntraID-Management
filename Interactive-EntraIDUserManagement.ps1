@@ -48,15 +48,28 @@ else {
     Write-Host "Microsoft.Graph module is already installed." -ForegroundColor Green
 }
 
-Write-Host "Importing Microsoft.Graph module..." -ForegroundColor Cyan
-try {
-    Import-Module Microsoft.Graph -ErrorAction Stop
-    Write-Host "Microsoft.Graph module imported successfully!" -ForegroundColor Green
-}
-catch {
-    Write-Host "Error importing Microsoft.Graph module: $($_.Exception.Message)" -ForegroundColor Red
-    Write-Host "Please try importing the module manually using: Import-Module Microsoft.Graph" -ForegroundColor Yellow
-    exit
+# Import required Microsoft Graph modules
+Write-Host "Importing Microsoft Graph modules..." -ForegroundColor Cyan
+$requiredModules = @(
+    'Microsoft.Graph.Authentication',
+    'Microsoft.Graph.Users',
+    'Microsoft.Graph.Users.Actions',
+    'Microsoft.Graph.Identity.DirectoryManagement',
+    'Microsoft.Graph.Identity.SignIns',
+    'Microsoft.Graph.Groups'
+)
+
+foreach ($module in $requiredModules) {
+    try {
+        Import-Module $module -ErrorAction Stop
+        Write-Host "Successfully imported $module" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "Error importing $module. Installing..." -ForegroundColor Yellow
+        Install-Module -Name $module -Force -Scope CurrentUser
+        Import-Module $module
+        Write-Host "Successfully installed and imported $module" -ForegroundColor Green
+    }
 }
 
 # Function to ensure Graph connection
@@ -249,12 +262,18 @@ function Get-AvailableLicenses {
             $selection = Read-Host "Select a license number (or press Enter to skip)"
             if ([string]::IsNullOrEmpty($selection)) { return $null }
             
-            if ($licenseOptions[$selection]) {
-                if ($licenseOptions[$selection].AvailableUnits -le 0) {
-                    Write-Host "No available licenses for $($licenseOptions[$selection].SkuPartNumber)" -ForegroundColor Yellow
-                    return $null
+            try {
+                $selectionNumber = [int]$selection
+                if ($licenseOptions[$selectionNumber]) {
+                    if ($licenseOptions[$selectionNumber].AvailableUnits -le 0) {
+                        Write-Host "No available licenses for $($licenseOptions[$selectionNumber].SkuPartNumber)" -ForegroundColor Yellow
+                        return $null
+                    }
+                    return $licenseOptions[$selectionNumber].SkuId
                 }
-                return $licenseOptions[$selection].SkuId
+            }
+            catch {
+                # Do nothing, will show invalid selection message
             }
             Write-Host "Invalid selection. Please try again." -ForegroundColor Yellow
         } while ($true)
@@ -605,12 +624,53 @@ function Manage-Licenses {
                     $LicenseSkuId = Get-AvailableLicenses
                     if ($LicenseSkuId) {
                         try {
-                            Add-MgUserLicense -UserId $user.Id -AddLicenses @{SkuId=$LicenseSkuId} -RemoveLicenses @() -ErrorAction Stop
-                            Write-Host "License assigned successfully to $($user.UserPrincipalName)" -ForegroundColor Green
+                            # Get the current connection context
+                            $context = Get-MgContext
+                            if (-not $context) {
+                                Write-Host "No active Microsoft Graph connection. Connecting..." -ForegroundColor Yellow
+                                Connect-MgGraph -Scopes "User.ReadWrite.All", "Directory.ReadWrite.All"
+                            }
+
+                            # Create the license object
+                            $licenseObject = @{
+                                addLicenses = @(
+                                    @{
+                                        skuId = $LicenseSkuId
+                                    }
+                                )
+                                removeLicenses = @()
+                            }
+
+                            # Use Invoke-MgGraphRequest as a fallback method
+                            try {
+                                $apiVersion = "v1.0"
+                                $resource = "users/$($user.Id)/assignLicense"
+                                $method = "POST"
+                                
+                                $result = Invoke-MgGraphRequest -Method $method -Uri "/$apiVersion/$resource" -Body $licenseObject
+                                Write-Host "License assigned successfully to $($user.UserPrincipalName)" -ForegroundColor Green
+                            }
+                            catch {
+                                Write-Host "Error assigning license using Graph API: $($_.Exception.Message)" -ForegroundColor Red
+                                Write-ErrorLog -ErrorMessage "Failed to assign license using Graph API" -ErrorDetails $_.Exception.Message
+                                
+                                # Show detailed error information
+                                Write-Host "`nError Details:" -ForegroundColor Yellow
+                                Write-Host "Status Code: $($_.Exception.Response.StatusCode.value__)" -ForegroundColor Yellow
+                                Write-Host "Status Description: $($_.Exception.Response.StatusDescription)" -ForegroundColor Yellow
+                                
+                                try {
+                                    $errorContent = $_.ErrorDetails.Message | ConvertFrom-Json
+                                    Write-Host "Error Message: $($errorContent.error.message)" -ForegroundColor Yellow
+                                }
+                                catch {
+                                    Write-Host "Raw Error: $($_.Exception.Message)" -ForegroundColor Yellow
+                                }
+                            }
                         }
                         catch {
-                            Write-Host "Error assigning license: $($_.Exception.Message)" -ForegroundColor Red
-                            Write-ErrorLog -ErrorMessage "Failed to assign license" -ErrorDetails $_.Exception.Message
+                            Write-Host "Error in license assignment process: $($_.Exception.Message)" -ForegroundColor Red
+                            Write-ErrorLog -ErrorMessage "Failed in license assignment process" -ErrorDetails $_.Exception.Message
                         }
                     }
                 }
