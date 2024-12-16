@@ -250,9 +250,9 @@ function Get-AvailableLicenses {
             $availableUnits = $sub.PrepaidUnits.Enabled - $sub.ConsumedUnits
             Write-Host "$i. $($sub.SkuPartNumber) - Available: $availableUnits" -ForegroundColor Cyan
             $licenseOptions[$i] = @{
-                SkuId = $sub.SkuId
+                SkuId          = $sub.SkuId
                 AvailableUnits = $availableUnits
-                SkuPartNumber = $sub.SkuPartNumber
+                SkuPartNumber  = $sub.SkuPartNumber
             }
             $i++
         }
@@ -288,7 +288,7 @@ function Get-AvailableLicenses {
 # Function to view user's current licenses
 function Show-UserLicenses {
     param (
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [string]$UserId
     )
     
@@ -352,21 +352,21 @@ function Add-NewUser {
         $RoleId = Read-Host "Enter the Directory Role ID (Leave blank to skip role assignment)"
 
         Write-Host "Adding new user: $DisplayName..." -ForegroundColor Cyan
-        $newUser = New-MgUser -AccountEnabled $true `
+        $newUser = New-MgUser -AccountEnabled:$true `
             -DisplayName $DisplayName `
             -UserPrincipalName $UserPrincipalName `
             -MailNickname $MailNickname `
             -PasswordProfile @{
-                Password = $Password
-                ForceChangePasswordNextSignIn = $true
-                ForceChangePasswordNextSignInWithMfa = $false
-            } -ErrorAction Stop
+            Password                             = $Password
+            ForceChangePasswordNextSignIn        = $true
+            ForceChangePasswordNextSignInWithMfa = $false
+        } -ErrorAction Stop
 
         Write-Host "User $DisplayName added successfully!" -ForegroundColor Green
 
         if ($LicenseSkuId) {
             try {
-                Add-MgUserLicense -UserId $newUser.Id -AddLicenses @{SkuId=$LicenseSkuId} -RemoveLicenses @() -ErrorAction Stop
+                Add-MgUserLicense -UserId $newUser.Id -AddLicenses @{SkuId = $LicenseSkuId } -RemoveLicenses @() -ErrorAction Stop
                 Write-Host "License assigned successfully" -ForegroundColor Green
             }
             catch {
@@ -511,7 +511,8 @@ function Find-EntraIDUser {
                             $listAll = Read-Host "Would you like to see all users instead? (Y/N)"
                             if ($listAll -eq 'Y' -or $listAll -eq 'y') {
                                 $users = Get-MgUser -Top 20 -ErrorAction Stop
-                            } else {
+                            }
+                            else {
                                 continue
                             }
                         }
@@ -633,7 +634,7 @@ function Manage-Licenses {
 
                             # Create the license object
                             $licenseObject = @{
-                                addLicenses = @(
+                                addLicenses    = @(
                                     @{
                                         skuId = $LicenseSkuId
                                     }
@@ -692,7 +693,7 @@ function Manage-Licenses {
                         $selection = Read-Host "Select the license number to remove"
                         if ($selection -ge 1 -and $selection -le $userLicenses.Count) {
                             try {
-                                $LicenseSkuId = $userLicenses[$selection-1].SkuId
+                                $LicenseSkuId = $userLicenses[$selection - 1].SkuId
                                 Set-MgUserLicense -UserId $user.Id -AddLicenses @() -RemoveLicenses @($LicenseSkuId) -ErrorAction Stop
                                 Write-Host "License removed successfully from $($user.UserPrincipalName)" -ForegroundColor Green
                                 
@@ -700,7 +701,8 @@ function Manage-Licenses {
                                 $updatedLicenses = Get-MgUserLicenseDetail -UserId $user.Id
                                 if ($updatedLicenses.SkuId -notcontains $LicenseSkuId) {
                                     Write-Host "Verified: License removal confirmed" -ForegroundColor Green
-                                } else {
+                                }
+                                else {
                                     Write-Host "Warning: License might not have been removed properly. Please verify." -ForegroundColor Yellow
                                 }
                             }
@@ -790,7 +792,7 @@ function Manage-BulkLicenses {
                 Write-Host "`nAssigning license to selected users..." -ForegroundColor Cyan
                 foreach ($user in $selectedUsers) {
                     try {
-                        Add-MgUserLicense -UserId $user.Id -AddLicenses @{SkuId=$LicenseSkuId} -RemoveLicenses @() -ErrorAction Stop
+                        Add-MgUserLicense -UserId $user.Id -AddLicenses @{SkuId = $LicenseSkuId } -RemoveLicenses @() -ErrorAction Stop
                         Write-Host "License assigned successfully to $($user.UserPrincipalName)" -ForegroundColor Green
                     }
                     catch {
@@ -817,8 +819,8 @@ function Manage-BulkLicenses {
                         $licenseChoice = Read-Host "Select license number to remove"
                         if ($licenseChoice -ge 1 -and $licenseChoice -le $userLicenses.Count) {
                             $selectedUsers += @{
-                                User = $user
-                                LicenseSkuId = $userLicenses[$licenseChoice-1].SkuId
+                                User         = $user
+                                LicenseSkuId = $userLicenses[$licenseChoice - 1].SkuId
                             }
                             Write-Host "Added $($user.DisplayName) to selection" -ForegroundColor Green
                         }
@@ -911,7 +913,8 @@ function Manage-MFA {
                             $model = $method.AdditionalProperties["model"]
                             if ($model) {
                                 "FIDO2 Security Key: $model"
-                            } else {
+                            }
+                            else {
                                 "FIDO2 Security Key"
                             }
                         }
@@ -920,7 +923,8 @@ function Manage-MFA {
                             $deviceName = $method.AdditionalProperties["displayName"]
                             if ($deviceName) {
                                 "Windows Hello for Business: $deviceName"
-                            } else {
+                            }
+                            else {
                                 "Windows Hello for Business"
                             }
                         }
@@ -930,8 +934,8 @@ function Manage-MFA {
                     if ($methodType -ne "#microsoft.graph.passwordAuthenticationMethod") {
                         Write-Host "$i. $displayName" -ForegroundColor Gray
                         $methodList[$i] = @{
-                            Id = $method.Id
-                            Type = $methodType
+                            Id          = $method.Id
+                            Type        = $methodType
                             DisplayName = $displayName
                         }
                         $i++
